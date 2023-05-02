@@ -1,0 +1,26 @@
+{
+  "name": "mot mot",
+  "version": "1.0",
+  "manifest_version": 2,
+  "description": "Highlight to Tweet",
+  "icons": {
+	"16": "motmot16.jpg",
+	"48": "motmot48.jpg",
+    "128": "motmot128.jpg"
+
+  },
+  "action": {
+	"default_icon": {
+		"16": "motmot16.jpg",
+		"48": "motmot48.jpg",
+		"128": "motmot128.jpg"
+	},
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab","contextMenus", "tabs"],
+  "background": {
+	  "scripts": ["background.js"],
+	  "persistent": false
+  
+}
+}
