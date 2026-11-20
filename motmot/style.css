@@ -1,15 +1,243 @@
+/* mot mot popup — follows jakeweber.net: a light paper ground, hairline
+   boxes with no fill, lowercase headings, Arial, and the one blue accent. */
 
-.twitter-login {
-  background-color: #1DA1F2;
-  color: white;
-  font-family: Helvetica, sans-serif;
-  font-size: 20px;
-  border-radius: 5px;
-  padding: 10px;
-  cursor: pointer;
-  transition: background-color 0.5s ease-in-out;
+* {
+  box-sizing: border-box;
 }
 
-.twitter-login:hover {
-  background-color: #ffffff;
+body {
+  margin: 0;
+  width: 340px;
+  background: #f3f3f3;
+  color: #0b0b0b;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+}
+
+/* header */
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.site-header h1 {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: -1.1px;
+}
+
+/* the outlined second word is the site's wordmark treatment */
+.site-header h1 span {
+  color: transparent;
+  -webkit-text-stroke: 1.2px #0b0b0b;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  border: 1px solid #111;
+  padding: 6px 9px;
+  font-size: 11px;
+  line-height: 1;
+  color: #555;
+}
+
+/* the shimmer squares from the site, shrunk to a dot */
+.badge::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  background-image: linear-gradient(135deg, #0d47a1, #42a5f5, #0d47a1);
+  background-size: 300% 300%;
+  animation: shimmer 8s ease-in-out infinite;
+}
+
+/* boxes */
+
+.box {
+  border: 1px solid #111;
+  background: transparent;
+  padding: 12px;
+}
+
+.box h2 {
+  margin: 0 0 9px;
+  font-size: 15px;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+
+.compose-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.compose-head h2 {
+  margin-bottom: 9px;
+}
+
+.counter {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #555;
+}
+
+.counter.warn {
+  color: #b06a00;
+}
+
+.counter.over {
+  color: #c0342b;
+  font-weight: 700;
+}
+
+textarea {
+  display: block;
+  width: 100%;
+  border: 1px solid #111;
+  background: #fff;
+  padding: 8px;
+  color: #0b0b0b;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+textarea:focus {
+  outline: none;
+  border-color: #2d6bc4;
+  box-shadow: 0 0 0 2px #e8f1fd;
+}
+
+/* preview — the exact tweet that will be sent, sign-off and all */
+
+.preview-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #0b0b0b;
+  overflow-wrap: anywhere;
+}
+
+.preview-text.empty {
+  color: #999;
+  font-style: italic;
+}
+
+/* a trimmed quote is the one case worth colouring, since the tweet will not
+   say everything the selection did */
+.preview-text.trimmed {
+  color: #b06a00;
+}
+
+/* send */
+
+.send {
+  border: 1px solid #111;
+  background: transparent;
+  padding: 11px;
+  color: #0b0b0b;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.send:hover:not(:disabled) {
+  background: #e8f1fd;
+  border-color: #2d6bc4;
+}
+
+.send:disabled {
+  color: #999;
+  border-color: #bbb;
+  cursor: default;
+}
+
+/* the blue bar that closes the home page */
+.shimmer-bar {
+  height: 10px;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(90deg, #1a3570, #2d6bc4, #5abfb0, #2d6bc4, #1a3570);
+}
+
+.shimmer-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(160, 230, 215, 0.2) 35%,
+    rgba(220, 248, 242, 0.65) 50%,
+    rgba(160, 230, 215, 0.2) 65%,
+    transparent 100%
+  );
+  animation: sweep 7s ease-in-out infinite alternate;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: #555;
+}
+
+.foot a {
+  color: #2961f6;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+}
+
+.foot a:hover {
+  color: #003cff;
+}
+
+@keyframes shimmer {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes sweep {
+  0% {
+    transform: translateX(-50%);
+  }
+  100% {
+    transform: translateX(50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge::before,
+  .shimmer-bar::after {
+    animation: none;
+  }
 }

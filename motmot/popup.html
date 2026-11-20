@@ -1,15 +1,46 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
-    <meta charset="UTF-8">
+    <meta charset="UTF-8" />
     <title>mot mot</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="background.js"></script>
+    <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <h1>mot mot</h1>
-    <h2>highlight to Tweet</h2>
-    <img src="motmot128.jpg">
-    
+    <main class="page">
+      <header class="site-header">
+        <h1>mot <span>mot</span></h1>
+        <span class="badge">highlight to Tweet</span>
+      </header>
+
+      <section class="box compose">
+        <div class="compose-head">
+          <h2>compose</h2>
+          <span class="counter" id="counter">280</span>
+        </div>
+        <textarea
+          id="text"
+          rows="4"
+          placeholder="highlight text on the page, or type it here"
+          aria-label="Tweet text"
+        ></textarea>
+      </section>
+
+      <section class="box preview">
+        <h2>preview</h2>
+        <p class="preview-text" id="preview"></p>
+      </section>
+
+      <button class="send" id="send" disabled>Tweet it</button>
+
+      <div class="shimmer-bar" aria-hidden="true"></div>
+
+      <footer class="foot">
+        <span id="count">no Tweets sent yet</span>
+        <a href="#" id="shortcut">set a shortcut</a>
+      </footer>
+    </main>
+
+    <script src="tweet.js"></script>
+    <script src="popup.js"></script>
   </body>
 </html>

@@ -1,26 +1,53 @@
 {
+  "manifest_version": 3,
   "name": "mot mot",
-  "version": "1.0",
-  "manifest_version": 2,
-  "description": "Highlight to Tweet",
+  "version": "2.0",
+  "description": "Highlight to Tweet — send any selection on the web straight to X.",
   "icons": {
-	"16": "motmot16.jpg",
-	"48": "motmot48.jpg",
+    "16": "motmot16.jpg",
+    "48": "motmot48.jpg",
     "128": "motmot128.jpg"
-
   },
   "action": {
-	"default_icon": {
-		"16": "motmot16.jpg",
-		"48": "motmot48.jpg",
-		"128": "motmot128.jpg"
-	},
+    "default_title": "mot mot — highlight to Tweet",
+    "default_icon": {
+      "16": "motmot16.jpg",
+      "48": "motmot48.jpg",
+      "128": "motmot128.jpg"
+    },
     "default_popup": "popup.html"
   },
-  "permissions": ["activeTab","contextMenus", "tabs"],
+  "content_scripts": [
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*", "https://mobile.x.com/*", "https://mobile.twitter.com/*"],
+      "js": ["jump.js"],
+      "css": ["jump.css"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*", "https://mobile.x.com/*", "https://mobile.twitter.com/*"],
+      "js": ["rewind.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
   "background": {
-	  "scripts": ["background.js"],
-	  "persistent": false
-  
-}
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "scripting",
+    "storage",
+    "notifications"
+  ],
+  "commands": {
+    "tweet-selection": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Tweet the current selection"
+    }
+  }
 }
