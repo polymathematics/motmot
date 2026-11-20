@@ -389,7 +389,7 @@
   // Finding an old Tweet needs X's own app: its requests carry login and
   // signing we can't reproduce. The background script keeps X open in a
   // small minimized window, on a search for the author's Tweets from a
-  // random month of the last two years; rewind.js there reads the results.
+  // random month of the last five years; rewind.js there reads the results.
   // We ask through the background script, and the Tweet comes back as data.
   //
   // The first pick opens that window (a few seconds). It is then kept for
@@ -514,10 +514,10 @@
       if (ended) return;
       if (state === 'seeking') {
         setProgress(0.45);
-        if (status) status.textContent = `Picking a moment from @${handle}'s last two years…`;
+        if (status) status.textContent = `Picking a moment from @${handle}'s last five years…`;
       } else if (state === 'collecting' && data?.goal) {
         setProgress(0.45 + 0.5 * (data.count / data.goal));
-        if (status) status.textContent = `Quiet stretch — looking wider in @${handle}'s last two years…`;
+        if (status) status.textContent = `Quiet stretch — looking wider in @${handle}'s last five years…`;
       } else if (state === 'done' && data?.tweet) {
         if (fill) fill.style.transform = 'scaleX(1)';
         end();
@@ -526,7 +526,7 @@
         }, 200);
       } else if (state === 'failed') {
         end();
-        renderError(card, handle, data?.reason === 'none' ? `No Tweets from @${handle} in the last two years.` : null);
+        renderError(card, handle, data?.reason === 'none' ? `No Tweets from @${handle} in the last five years.` : null);
       }
     });
 

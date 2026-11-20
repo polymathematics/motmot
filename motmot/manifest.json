@@ -1,19 +1,19 @@
 {
   "manifest_version": 3,
   "name": "mot mot",
-  "version": "2.1",
+  "version": "2.2",
   "description": "Highlight to Tweet — send any selection on the web straight to X.",
   "icons": {
-    "16": "motmot16.jpg",
-    "48": "motmot48.jpg",
-    "128": "motmot128.jpg"
+    "16": "motmot16.png",
+    "48": "motmot48.png",
+    "128": "motmot128.png"
   },
   "action": {
     "default_title": "mot mot — highlight to Tweet",
     "default_icon": {
-      "16": "motmot16.jpg",
-      "48": "motmot48.jpg",
-      "128": "motmot128.jpg"
+      "16": "motmot16.png",
+      "48": "motmot48.png",
+      "128": "motmot128.png"
     },
     "default_popup": "popup.html"
   },

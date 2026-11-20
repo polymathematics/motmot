@@ -24,7 +24,7 @@
   const ARM_WINDOW_MS = 4000; // an in-page arm only applies to the very next load
   const SEARCH_OP = /\/SearchTimeline$/;
   const X_EPOCH_MS = 1288834974657;
-  const PICK_WINDOW_MS = 2 * 365.25 * 86400000; // random picks: the last two years
+  const PICK_WINDOW_MS = 5 * 365.25 * 86400000; // random picks: the last five years
 
   const fromHash = location.hash.match(/^#motmot=(\d{1,20})$/);
   let target = fromHash ? fromHash[1] : null;
@@ -295,10 +295,20 @@
     return tweets;
   }
 
-  // Theirs, in their own words (not a retweet), and in the last two years.
+  // Theirs, in their own words (not a retweet), and in the last five years.
   function ownTweets(tweets, handle) {
     const oldest = Date.now() - PICK_WINDOW_MS - DAY_MS;
-    return tweets.filter((t) => !t.retweet && t.user.handle.toLowerCase() === handle && tweetTime(t) >= oldest);
+    return tweets.filter(
+      (t) => !t.retweet && t.user.handle.toLowerCase() === handle && tweetTime(t) >= oldest && worthShowing(t)
+    );
+  }
+
+  // Not just "@someone 😂" or a GIF: there are words (or numbers) once the
+  // @mentions, emoji, spaces and punctuation are gone, or a photo or video.
+  function worthShowing(tweet) {
+    const words = tweet.text.replace(/@\w{1,15}/g, '').replace(/[^\p{L}\p{N}]/gu, '');
+    const pictures = tweet.media.some((m) => m.type !== 'animated_gif');
+    return words.length > 0 || pictures;
   }
 
   const day = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -307,7 +317,7 @@
     return `/search?q=${encodeURIComponent(q)}&src=typed_query&f=live`;
   }
 
-  // A window of `span` days around a random moment in the last two years.
+  // A window of `span` days around a random moment in the last five years.
   function randomWindow(span) {
     const end = Date.now();
     const start = end - PICK_WINDOW_MS;
@@ -499,7 +509,7 @@
 
     // Nothing in hand: search a random month, then wider stretches for
     // someone who posts rarely.
-    const spans = [30, 180, 0];
+    const spans = [30, 365, 0];
     for (let i = 0; !tweet && i < spans.length; i++) {
       if (!picker.booted) return tell(req, { status: 'reload' });
       const tweets = await search(handle, randomWindow(spans[i]));
@@ -520,7 +530,7 @@
   // Fetch ahead: a random month of theirs, widening (as a pick would) for
   // someone who rarely posts. Gives way as soon as a real pick is waiting.
   async function refill(handle) {
-    for (const span of [30, 180, 0]) {
+    for (const span of [30, 365, 0]) {
       if (!picker.booted || picker.stuck || picker.queue.some((j) => j.req)) return;
       const tweets = await search(handle, randomWindow(span));
       if (!Array.isArray(tweets)) return;

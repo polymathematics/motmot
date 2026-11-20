@@ -185,7 +185,7 @@ function flashBadge(text, color) {
 function notify(title, message) {
   chrome.notifications.create({
     type: 'basic',
-    iconUrl: 'motmot128.jpg',
+    iconUrl: 'motmot128.png',
     title,
     message,
   });
@@ -196,9 +196,9 @@ function notify(title, message) {
 // Picking an old Tweet takes X's own app: only it can make X's search
 // requests (they carry login and per-request signing). X refuses to load in
 // a frame, so it runs in a small minimized window of its own, opened on a
-// search for the author's Tweets from a random month. rewind.js in that
-// window reads the results; jump.js there passes them to us, and we pass
-// them on to the tab that asked. The window is reused for later picks — X
+// search for the author's Tweets from a random month of the last five
+// years. rewind.js in that window reads the results; jump.js there passes
+// them to us, and we pass them on to the tab that asked. The window is reused for later picks — X
 // moves to a new search in a moment, without reloading — and closed after
 // ten minutes unused.
 //
@@ -223,7 +223,7 @@ async function savePicker(picker) {
 function randomSearchPath(handle) {
   const day = 86400000;
   const end = Date.now();
-  const lo = end - 2 * 365.25 * day + Math.random() * (2 * 365.25 * day - 30 * day);
+  const lo = end - 5 * 365.25 * day + Math.random() * (5 * 365.25 * day - 30 * day);
   const ymd = (ms) => new Date(ms).toISOString().slice(0, 10);
   const q = `from:${handle} since:${ymd(lo)} until:${ymd(lo + 31 * day)}`;
   return `/search?q=${encodeURIComponent(q)}&src=typed_query&f=live`;

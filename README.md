@@ -48,7 +48,7 @@ load back that far.
 
 On X, **right-click any Tweet** and choose **Random old Tweet from @author**.
 The Tweet blurs under a shimmering border, and a Tweet from a random moment in
-the last two years of their history takes its place. You never leave the page.
+the last five years of their history takes its place. You never leave the page.
 **Another** picks again, **✕** puts the original back, **Open on X** opens the
 old one, and holding it rewinds their profile to that moment. Highlighting text
 still gives you the usual **Tweet "…"** option alongside it.
