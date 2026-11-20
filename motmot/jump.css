@@ -3,11 +3,13 @@
 
 /* While held: a bar fills along the bottom of the Tweet, so it is obvious
    that holding is doing something and how long is left. */
-article.motmot-pressing {
+article.motmot-pressing,
+.motmot-card.motmot-pressing {
   position: relative;
 }
 
-article.motmot-pressing::after {
+article.motmot-pressing::after,
+.motmot-card.motmot-pressing::after {
   content: '';
   position: absolute;
   left: 0;
@@ -199,6 +201,321 @@ article.motmot-origin {
   to   { background-position: 140% 0, 0 0; }
 }
 
+/* ---- Random old Tweet overlay ----------------------------------------
+
+   Laid over the right-clicked Tweet, in X's own colours for whichever of its
+   three themes is on. While the pick is made the Tweet shows through,
+   blurred; then the old Tweet covers it. Top and min-height are set from
+   jump.js to match the Tweet underneath. */
+.motmot-card {
+  --mm-bg: #ffffff;
+  --mm-raised: #f7f9f9;
+  --mm-text: #0f1419;
+  --mm-muted: #536471;
+  --mm-line: #eff3f4;
+  --mm-accent: #1d9bf0;
+  position: absolute;
+  z-index: 2;
+  left: 4px;
+  right: 4px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--mm-line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--mm-bg) 55%, transparent);
+  -webkit-backdrop-filter: blur(7px) saturate(1.2);
+  backdrop-filter: blur(7px) saturate(1.2);
+  transition: background-color 0.25s ease;
+  color: var(--mm-text);
+  font: 15px/1.35 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  overflow: visible;
+  cursor: default;
+}
+
+.motmot-card.motmot-card-loaded {
+  background: var(--mm-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* While loading, the status sits in the middle of the Tweet it covers. */
+.motmot-card:not(.motmot-card-loaded) .motmot-card-status {
+  margin: auto 0;
+  text-align: center;
+  color: var(--mm-text);
+  font-weight: 600;
+}
+
+/* Room left below the Tweet when the old one is taller (height from jump.js). */
+.motmot-card-room {
+  display: block;
+  height: 0;
+}
+
+.motmot-card[data-theme='dim'] {
+  --mm-bg: #15202b;
+  --mm-raised: #1e2732;
+  --mm-text: #f7f9f9;
+  --mm-muted: #8b98a5;
+  --mm-line: #38444d;
+}
+
+.motmot-card[data-theme='dark'] {
+  --mm-bg: #000000;
+  --mm-raised: #16181c;
+  --mm-text: #e7e9ea;
+  --mm-muted: #71767b;
+  --mm-line: #2f3336;
+}
+
+.motmot-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 0 14px;
+}
+
+.motmot-card-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mm-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.motmot-card-btn {
+  border: 1px solid var(--mm-line);
+  border-radius: 999px;
+  padding: 3px 12px;
+  background: transparent;
+  color: var(--mm-text);
+  font: 600 13px/1.3 inherit;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.motmot-card-btn:hover {
+  background: color-mix(in srgb, var(--mm-accent) 12%, transparent);
+}
+
+.motmot-card-close {
+  border-color: transparent;
+  color: var(--mm-muted);
+  padding: 3px 8px;
+}
+
+/* Loading: the same pink-to-mint bar as a rewind, inside the card. */
+.motmot-card-track {
+  height: 4px;
+  margin: 10px 14px 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--mm-accent) 15%, transparent);
+  overflow: hidden;
+}
+
+.motmot-card-fill {
+  height: 100%;
+  transform: scaleX(0.03);
+  transform-origin: left;
+  transition: transform 0.25s ease-out;
+  background:
+    linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%) 0 0 / 30% 100% no-repeat,
+    linear-gradient(90deg, #ff4fa3, #8a6bff 35%, #3d9bff 70%, #3de0b0);
+  animation: motmot-sweep 1.4s linear infinite;
+}
+
+.motmot-card-status {
+  padding: 10px 14px 14px;
+  color: var(--mm-muted);
+  font-size: 14px;
+}
+
+/* The Tweet itself, laid out like X's. */
+.motmot-card-tweet {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px 4px;
+}
+
+.motmot-card-avatar {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--mm-line);
+  object-fit: cover;
+}
+
+.motmot-card-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.motmot-card-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.motmot-card-name {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.motmot-card-verified {
+  color: var(--mm-accent);
+  font-size: 13px;
+}
+
+.motmot-card-handle {
+  color: var(--mm-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.motmot-card-reply {
+  color: var(--mm-muted);
+  font-size: 14px;
+  margin-top: 2px;
+}
+
+.motmot-card-text {
+  margin-top: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.motmot-card-text a,
+.motmot-card-open {
+  color: var(--mm-accent);
+  text-decoration: none;
+}
+
+.motmot-card-text a:hover,
+.motmot-card-open:hover {
+  text-decoration: underline;
+}
+
+.motmot-card-media {
+  display: grid;
+  gap: 2px;
+  margin-top: 10px;
+  border: 1px solid var(--mm-line);
+  border-radius: 14px;
+  overflow: hidden;
+  grid-template-columns: 1fr 1fr;
+}
+
+.motmot-card-media-1 {
+  grid-template-columns: 1fr;
+}
+
+.motmot-card-photo {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: var(--mm-line);
+}
+
+.motmot-card-media-1 .motmot-card-photo {
+  aspect-ratio: auto;
+  max-height: 420px;
+}
+
+.motmot-card-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 420px;
+  object-fit: cover;
+}
+
+.motmot-card-play {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 18px;
+}
+
+.motmot-card-counts {
+  display: flex;
+  gap: 18px;
+  margin-top: 10px;
+  color: var(--mm-muted);
+  font-size: 13px;
+}
+
+.motmot-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 6px 14px 12px 64px;
+  font-size: 13px;
+}
+
+.motmot-card-hint {
+  color: var(--mm-muted);
+}
+
+/* Arrival: the same shimmer-and-glow as a rewind, on the card. */
+.motmot-card:not(.motmot-card-loaded)::before,
+.motmot-card.motmot-card-shine::before,
+.motmot-card.motmot-card-shine::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 16px;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.motmot-card:not(.motmot-card-loaded)::before,
+.motmot-card.motmot-card-shine::before {
+  padding: 2px;
+  background: conic-gradient(
+    from var(--motmot-spin),
+    rgba(120, 170, 255, 0.15) 0deg,
+    rgba(160, 200, 255, 1) 35deg,
+    rgba(255, 255, 255, 1) 50deg,
+    rgba(120, 170, 255, 0.15) 95deg,
+    rgba(120, 170, 255, 0.15) 180deg,
+    rgba(160, 200, 255, 1) 215deg,
+    rgba(255, 255, 255, 1) 230deg,
+    rgba(120, 170, 255, 0.15) 275deg,
+    rgba(120, 170, 255, 0.15) 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation:
+    motmot-spin 1.2s linear infinite,
+    motmot-swell 2.6s ease-in-out forwards;
+}
+
+.motmot-card.motmot-card-shine::after {
+  animation: motmot-halo 2.6s ease-in-out forwards;
+}
+
+/* Loading: the shimmer keeps circling the Tweet until the old one lands. */
+.motmot-card:not(.motmot-card-loaded)::before {
+  opacity: 0.85;
+  animation: motmot-spin 1.2s linear infinite;
+}
+
 /* Empty room at the foot of the page so the rewind can start scrolling
    before X has rendered anything. Height is set from jump.js. */
 .motmot-spacer {
@@ -273,11 +590,24 @@ article.motmot-origin {
     animation: none;
   }
 
+  .motmot-card.motmot-card-shine::before {
+    animation: motmot-swell 2.6s ease-in-out forwards;
+  }
+
+  .motmot-card-fill {
+    animation: none;
+  }
+
+  .motmot-card:not(.motmot-card-loaded)::before {
+    animation: none;
+  }
+
   /* No chasing light: the border and glow just brighten and fade. */
   .motmot-halo::before {
     animation: motmot-swell 2.6s ease-in-out forwards;
   }
-  article.motmot-pressing::after {
+  article.motmot-pressing::after,
+  .motmot-card.motmot-pressing::after {
     animation: none;
     transform: scaleX(1);
     opacity: 0.6;

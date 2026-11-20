@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "mot mot",
-  "version": "2.0",
+  "version": "2.1",
   "description": "Highlight to Tweet — send any selection on the web straight to X.",
   "icons": {
     "16": "motmot16.jpg",
@@ -19,16 +19,33 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://x.com/*", "https://twitter.com/*", "https://mobile.x.com/*", "https://mobile.twitter.com/*"],
-      "js": ["jump.js"],
-      "css": ["jump.css"],
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*",
+        "https://mobile.x.com/*",
+        "https://mobile.twitter.com/*"
+      ],
+      "js": [
+        "jump.js"
+      ],
+      "css": [
+        "jump.css"
+      ],
       "run_at": "document_start"
     },
     {
-      "matches": ["https://x.com/*", "https://twitter.com/*", "https://mobile.x.com/*", "https://mobile.twitter.com/*"],
-      "js": ["rewind.js"],
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*",
+        "https://mobile.x.com/*",
+        "https://mobile.twitter.com/*"
+      ],
+      "js": [
+        "rewind.js"
+      ],
       "run_at": "document_start",
-      "world": "MAIN"
+      "world": "MAIN",
+      "all_frames": true
     }
   ],
   "background": {
@@ -39,7 +56,8 @@
     "contextMenus",
     "scripting",
     "storage",
-    "notifications"
+    "notifications",
+    "alarms"
   ],
   "commands": {
     "tweet-selection": {

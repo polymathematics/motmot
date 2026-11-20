@@ -44,6 +44,24 @@ your Tweet. If X ever stops accepting that, mot mot scrolls the profile back
 itself, with a progress bar, and falls back to X search when a profile won't
 load back that far.
 
+## A random old Tweet
+
+On X, **right-click any Tweet** and choose **Random old Tweet from @author**.
+The Tweet blurs under a shimmering border, and a Tweet from a random moment in
+the last two years of their history takes its place. You never leave the page.
+**Another** picks again, **✕** puts the original back, **Open on X** opens the
+old one, and holding it rewinds their profile to that moment. Highlighting text
+still gives you the usual **Tweet "…"** option alongside it.
+
+To find it, mot mot uses X's own search, which can jump straight to any
+stretch of time (`from:author since:… until:…`). X only lets its own app run
+that search, and won't load in a hidden frame, so the first pick opens X in a
+small minimized window and reads the results from there. That window is kept
+for ten minutes: later picks take a moment, a right-press on a Tweet gets
+that author's Tweets fetched before you've chosen the menu item, and
+**Another** is usually instant. Close the window any time; the next pick
+opens it again.
+
 ## The Tweet
 
 Every Tweet takes the same shape:

@@ -71,6 +71,11 @@
   // their timestamp without a link, and a retweet's permalink points at the
   // original author — which is the poster we want.
   function tweetFromTarget(target) {
+    // A loaded random-old-Tweet card stands in for the Tweet it shows.
+    const card = target.closest('.motmot-card');
+    if (card?.dataset.id) return { article: card, handle: card.dataset.handle, id: card.dataset.id };
+    if (card) target = card.__motmotArticle || card;
+
     const article = target.closest('article');
     if (!article) return null;
 
@@ -102,10 +107,19 @@
     press = null;
   }
 
+  // On a Mac, Control-click is a right-click: the browser reports it as a
+  // left press with Control held, then opens the context menu. It must never
+  // start a hold, and Control is not the new-tab key there (⌘ is).
+  const IS_MAC = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform || navigator.platform || '');
+
   document.addEventListener(
     'pointerdown',
     (event) => {
+      // A finished long press whose release never produced a click: any new
+      // press starts afresh rather than being swallowed.
+      if (press?.fired && press.released) press = null;
       if (event.button !== 0 || !event.isPrimary) return;
+      if (IS_MAC && event.ctrlKey && event.pointerType === 'mouse') return;
       if (isExcluded(event.target)) return;
 
       const tweet = tweetFromTarget(event.target);
@@ -119,9 +133,11 @@
         ...tweet,
         x: event.clientX,
         y: event.clientY,
-        newTab: event.metaKey || event.ctrlKey,
+        pointerType: event.pointerType,
+        newTab: event.metaKey || (!IS_MAC && event.ctrlKey),
         timer: setTimeout(fire, HOLD_MS),
         fired: false,
+        released: false,
       };
     },
     true
@@ -131,33 +147,71 @@
     'pointermove',
     (event) => {
       if (!press || press.fired) return;
+      // Another button joining in mid-hold (pressing right while holding
+      // left) arrives as a move with more buttons down, not a new press.
+      if (event.pointerType === 'mouse' && event.buttons !== 1) return cancel();
       if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > MOVE_TOLERANCE) cancel();
     },
     true
   );
 
-  // A drag to select text, a scroll or a lifted finger before the hold
-  // completes all mean "not a long press".
-  for (const type of ['pointerup', 'pointercancel', 'dragstart']) {
-    document.addEventListener(type, () => press && !press.fired && cancel(), true);
-  }
-  window.addEventListener('scroll', () => press && !press.fired && cancel(), true);
-  window.addEventListener('blur', cancel);
+  // Any other mouse button going down means this isn't a long press.
+  document.addEventListener('mousedown', (event) => {
+    if (event.button !== 0 && press && !press.fired) cancel();
+  }, true);
 
-  // Releasing after a completed hold would otherwise open the Tweet, and on
-  // touch devices the hold also raises the context menu. Swallow both.
-  for (const type of ['click', 'contextmenu']) {
+  // A drag to select text, a scroll or a lifted finger before the hold
+  // completes all mean "not a long press". Once it has fired, note the
+  // release: anything after that is a new gesture, not this one.
+  for (const type of ['pointerup', 'pointercancel', 'dragstart']) {
     document.addEventListener(
       type,
-      (event) => {
-        if (!press?.fired) return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        if (type === 'click') press = null;
+      () => {
+        if (!press) return;
+        if (!press.fired) cancel();
+        else press.released = true;
       },
       true
     );
   }
+  window.addEventListener('scroll', () => press && !press.fired && cancel(), true);
+  window.addEventListener('blur', cancel);
+
+  // The context menu and the long press, kept apart:
+  //  - mid-hold, a mouse context menu (right button, or Control-click) means
+  //    the user wants the menu, so the hold is called off;
+  //  - mid-hold on a touchscreen, the browser raises its menu as part of the
+  //    same long press, so the menu is suppressed and the hold carries on;
+  //  - after the hold has fired, a menu from that same gesture is
+  //    suppressed, but once the button is up, a right-click is the user's
+  //    own and goes through untouched.
+  document.addEventListener(
+    'contextmenu',
+    (event) => {
+      if (!press) return;
+      const sameGesture = !press.released;
+      if (!press.fired) {
+        if (press.pointerType === 'mouse') return cancel();
+      } else if (!sameGesture) {
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    },
+    true
+  );
+
+  // Releasing after a completed hold would otherwise open the Tweet.
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (!press?.fired) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      press = null;
+    },
+    true
+  );
 
   function profilePath(handle, replies) {
     return `/${handle}${replies ? '/with_replies' : ''}`;
@@ -217,6 +271,428 @@
     history.pushState(null, '', path);
     window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
     startRewind(handle, id, replies, { soft: true, stale });
+  }
+
+  // ---- Right-click: random old Tweet --------------------------------------
+
+  // The context menu item lives in the background script, which can't see
+  // the page. So as the right button goes down we note which Tweet it's on
+  // (if any), and have the menu renamed for its author or hidden. When the
+  // item is chosen, the background script tells us, and we take it from here.
+  let contextTweet = null;
+
+  function noteContextTweet(target) {
+    const tweet = target instanceof Element ? tweetFromTarget(target) : null;
+    contextTweet = tweet;
+    // If the picker window is open, it fetches this author's Tweets now,
+    // while the menu is still opening.
+    if (tweet?.handle) prefetch(tweet.handle);
+    try {
+      chrome.runtime.sendMessage({ type: 'contextTweet', handle: tweet?.handle || null }).catch(() => {});
+    } catch {
+      // The extension was reloaded under this page; nothing to update.
+    }
+  }
+
+  document.addEventListener('pointerdown', (event) => {
+    if (event.button === 2) noteContextTweet(event.target);
+  }, true);
+  // The keyboard's menu key opens the menu with no pointer involved.
+  document.addEventListener('contextmenu', (event) => {
+    if (event.button !== 2) noteContextTweet(event.target);
+  }, true);
+
+  try {
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message?.type !== 'randomOldTweet') return;
+      const tweet = contextTweet;
+      // X may have swapped the Tweet's element since the right-click.
+      const article = tweet?.article?.isConnected
+        ? tweet.article
+        : tweet && document.querySelector(`article a[href$="/status/${tweet.id}"] time`)?.closest('article');
+      if (tweet && article) {
+        showRandomCard(tweet.handle, article);
+      } else {
+        showBanner('Right-click a Tweet to get a random old one from its author');
+        fadeBannerAfter(3000);
+      }
+    });
+  } catch {}
+
+  // The old Tweet is shown right where the right-clicked Tweet is: an overlay
+  // lies over it, the Tweet blurred underneath while the pick is made, and
+  // then the old Tweet takes its place. ✕ gives the original back.
+  function showRandomCard(handle, target) {
+    let card = target.classList.contains('motmot-card') ? target : null;
+    const article = card ? card.__motmotArticle : target;
+    if (!card) {
+      const cell = article.closest('[data-testid="cellInnerDiv"]') || article.parentElement;
+      card = cell.querySelector(':scope > .motmot-card');
+      if (!card) card = makeOverlay(article, cell);
+    }
+    if (!card) return;
+    card.dataset.theme = pageTheme();
+    pickInto(card, handle);
+  }
+
+  function makeOverlay(article, cell) {
+    if (getComputedStyle(cell).position === 'static') cell.style.position = 'relative';
+    const card = document.createElement('div');
+    card.className = 'motmot-card';
+    card.__motmotArticle = article;
+    // Room below the Tweet when the old one is taller, so X's list moves the
+    // Tweets below down instead of being covered.
+    const room = document.createElement('div');
+    room.className = 'motmot-card-room';
+    cell.append(card, room);
+
+    // Clicks inside the overlay are ours; X must not take them as a click on
+    // the Tweet underneath (which would open it).
+    card.addEventListener('click', (event) => event.stopPropagation());
+
+    const place = () => {
+      if (!card.isConnected) return;
+      if (!article.isConnected) return closeOverlay(card);
+      const top = article.offsetTop;
+      const height = article.offsetHeight;
+      card.style.top = `${top}px`;
+      card.style.minHeight = `${height}px`;
+      room.style.height = `${Math.max(0, card.offsetHeight - height)}px`;
+    };
+    const watch = new ResizeObserver(place);
+    watch.observe(article);
+    watch.observe(card);
+    card.__motmotClose = () => {
+      watch.disconnect();
+      room.remove();
+    };
+    place();
+    return card;
+  }
+
+  function closeOverlay(card) {
+    card.__motmotCancel?.();
+    card.__motmotClose?.();
+    card.remove();
+  }
+
+  // X's three backgrounds: Default (white), Dim (navy), Lights out (black).
+  function pageTheme() {
+    const rgb = (getComputedStyle(document.body).backgroundColor.match(/\d+/g) || [255, 255, 255]).map(Number);
+    const light = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2];
+    if (light > 128) return 'light';
+    return rgb[2] > rgb[0] + 10 ? 'dim' : 'dark';
+  }
+
+  // ---- Asking for a pick ----------------------------------------------------
+  //
+  // Finding an old Tweet needs X's own app: its requests carry login and
+  // signing we can't reproduce. The background script keeps X open in a
+  // small minimized window, on a search for the author's Tweets from a
+  // random month of the last two years; rewind.js there reads the results.
+  // We ask through the background script, and the Tweet comes back as data.
+  //
+  // The first pick opens that window (a few seconds). It is then kept for
+  // ten minutes: later picks move it to another search in a moment, and a
+  // right-press on a Tweet gets that author's Tweets fetched before the menu
+  // item is even chosen.
+  const PICK_TIMEOUT_MS = 25000;
+  const picks = new Map(); // req → hear(data)
+
+  function note(...args) {
+    console.log('[mot mot]', ...args);
+  }
+
+  function toBackground(message) {
+    try {
+      return chrome.runtime.sendMessage(message).catch(() => {});
+    } catch {
+      return Promise.resolve(); // the extension was reloaded under this page
+    }
+  }
+
+  // A hint: if the picker window is open, have it fetch this author's Tweets.
+  const prefetched = new Map(); // handle → when
+  function prefetch(handle) {
+    handle = handle.toLowerCase();
+    if (Date.now() - (prefetched.get(handle) || 0) < 60000) return;
+    prefetched.set(handle, Date.now());
+    toBackground({ type: 'prefetch', handle });
+  }
+
+  // Ask for a pick. `on(status, data)` hears 'seeking', 'collecting', 'done'
+  // and 'failed'. Returns a function that cancels it.
+  function requestPick(handle, on) {
+    const req = Math.random().toString(36).slice(2, 12);
+    const asked = Date.now();
+    let retried = false;
+    let over = false;
+
+    const finish = (status, data) => {
+      if (over) return;
+      over = true;
+      clearTimeout(timeout);
+      picks.delete(req);
+      note(`pick ${status} after ${((Date.now() - asked) / 1000).toFixed(1)}s`);
+      on(status, data);
+    };
+    picks.set(req, (data) => {
+      if (data.status === 'reload' && !retried) {
+        // The picker window couldn't carry on: once more, in a fresh one.
+        note('picker window asked for a fresh start', data.nonav ? '(it can’t move between searches)' : '');
+        retried = true;
+        toBackground({ type: 'pick', req, handle, fresh: true });
+      } else if (data.status === 'done' || data.status === 'failed' || data.status === 'reload') {
+        finish(data.status === 'reload' ? 'failed' : data.status, data);
+      } else {
+        on(data.status, data);
+      }
+    });
+    const timeout = setTimeout(() => {
+      note(`no answer from the picker window in ${PICK_TIMEOUT_MS / 1000}s; giving up`);
+      finish('failed');
+    }, PICK_TIMEOUT_MS);
+    note('asking for a random old Tweet from', `@${handle}`);
+    toBackground({ type: 'pick', req, handle });
+    return () => {
+      over = true;
+      clearTimeout(timeout);
+      picks.delete(req);
+    };
+  }
+
+  try {
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message?.type === 'pickEvent' && message.data) picks.get(message.data.req)?.(message.data);
+    });
+  } catch {}
+
+  // In the picker window itself: carry messages between rewind.js (in the
+  // page) and the background script.
+  if (/^#motmot-pick=[A-Za-z0-9]{1,40}$/.test(location.hash) && window === window.top) {
+    window.addEventListener('message', (event) => {
+      if (event.source !== window || event.origin !== location.origin) return;
+      const data = event.data;
+      if (data?.source !== 'motmot-pick') return;
+      toBackground({ type: 'pickerEvent', data });
+    });
+    try {
+      chrome.runtime.onMessage.addListener((message) => {
+        if (message?.type !== 'pickerCmd' || !message.cmd) return;
+        window.postMessage({ source: 'motmot-picker', ...message.cmd }, location.origin);
+      });
+    } catch {}
+    window.postMessage({ source: 'motmot-picker', type: 'ping' }, location.origin);
+  }
+
+  function pickInto(card, handle) {
+    card.__motmotCancel?.();
+    renderLoading(card, handle);
+
+    const started = Date.now();
+    let progress = 0.03;
+    let ended = false;
+
+    const fill = card.querySelector('.motmot-card-fill');
+    const status = card.querySelector('.motmot-card-status');
+    const setProgress = (fraction) => {
+      progress = Math.max(progress, Math.min(0.97, fraction));
+      if (fill) fill.style.transform = `scaleX(${progress})`;
+    };
+    // Creep on its own until the frame tells us more, so it is always moving.
+    const creep = setInterval(() => {
+      setProgress(0.4 * (1 - Math.exp(-(Date.now() - started) / 2500)));
+    }, 100);
+
+    function end() {
+      ended = true;
+      clearInterval(creep);
+      card.__motmotCancel = null;
+    }
+
+    const cancelPick = requestPick(handle, (state, data) => {
+      if (ended) return;
+      if (state === 'seeking') {
+        setProgress(0.45);
+        if (status) status.textContent = `Picking a moment from @${handle}'s last two years…`;
+      } else if (state === 'collecting' && data?.goal) {
+        setProgress(0.45 + 0.5 * (data.count / data.goal));
+        if (status) status.textContent = `Quiet stretch — looking wider in @${handle}'s last two years…`;
+      } else if (state === 'done' && data?.tweet) {
+        if (fill) fill.style.transform = 'scaleX(1)';
+        end();
+        setTimeout(() => {
+          if (card.isConnected) renderTweet(card, handle, data.tweet);
+        }, 200);
+      } else if (state === 'failed') {
+        end();
+        renderError(card, handle, data?.reason === 'none' ? `No Tweets from @${handle} in the last two years.` : null);
+      }
+    });
+
+    card.__motmotCancel = () => {
+      end();
+      cancelPick();
+    };
+  }
+
+  // ---- Drawing the card ------------------------------------------------------
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  function cardHead(card, handle, label, { another = true } = {}) {
+    const head = el('div', 'motmot-card-head');
+    head.appendChild(el('span', 'motmot-card-label', label));
+    if (another) {
+      const again = el('button', 'motmot-card-btn', 'Another');
+      again.type = 'button';
+      again.addEventListener('click', () => pickInto(card, handle));
+      head.appendChild(again);
+    }
+    const close = el('button', 'motmot-card-btn motmot-card-close', '✕');
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Close');
+    close.addEventListener('click', () => closeOverlay(card));
+    head.appendChild(close);
+    return head;
+  }
+
+  function renderLoading(card, handle) {
+    card.classList.remove('motmot-card-shine', 'motmot-card-loaded');
+    delete card.dataset.id;
+    card.replaceChildren(
+      cardHead(card, handle, 'Random old Tweet', { another: false }),
+      (() => {
+        const track = el('div', 'motmot-card-track');
+        track.appendChild(el('div', 'motmot-card-fill'));
+        return track;
+      })(),
+      el('div', 'motmot-card-status', `Digging up a random old Tweet from @${handle}…`)
+    );
+  }
+
+  function renderError(card, handle, message = null) {
+    if (!card.isConnected) return;
+    card.classList.add('motmot-card-loaded');
+    card.replaceChildren(
+      cardHead(card, handle, 'Random old Tweet'),
+      el('div', 'motmot-card-status', message || `Couldn't reach @${handle}'s old Tweets just now.`)
+    );
+  }
+
+  // Text with its links made clickable. Built from text nodes and anchors
+  // only — Tweet text never goes anywhere near innerHTML.
+  function linkedText(text) {
+    const box = el('div', 'motmot-card-text');
+    for (const part of text.split(/(https?:\/\/[^\s]+)/)) {
+      if (/^https?:\/\//.test(part)) {
+        const a = el('a', null, part.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40) + (part.length > 48 ? '…' : ''));
+        a.href = part;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        box.appendChild(a);
+      } else if (part) {
+        box.appendChild(document.createTextNode(part));
+      }
+    }
+    return box;
+  }
+
+  function compact(n) {
+    if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
+    if (n >= 1e3) return `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}K`;
+    return String(n);
+  }
+
+  // Only images from X's own image host make it into the card.
+  function safeImage(src) {
+    try {
+      const url = new URL(src);
+      return url.protocol === 'https:' && /(^|\.)twimg\.com$/.test(url.hostname) ? url.href : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function renderTweet(card, handle, tweet) {
+    const id = /^\d{1,20}$/.test(tweet.id) ? tweet.id : null;
+    const author = /^[A-Za-z0-9_]{1,15}$/.test(tweet.user?.handle || '') ? tweet.user.handle : handle;
+    const posted = new Date(Date.parse(tweet.createdAt) || (id ? snowflakeTime(id) : 0));
+    const permalink = id ? `/${author}/status/${id}` : null;
+
+    const body = el('div', 'motmot-card-tweet');
+    const avatarSrc = safeImage(tweet.user?.avatar || '');
+    const avatar = el(avatarSrc ? 'img' : 'div', 'motmot-card-avatar');
+    if (avatarSrc) {
+      avatar.src = avatarSrc;
+      avatar.alt = '';
+    }
+    body.appendChild(avatar);
+
+    const main = el('div', 'motmot-card-main');
+    const meta = el('div', 'motmot-card-meta');
+    meta.appendChild(el('span', 'motmot-card-name', tweet.user?.name || author));
+    if (tweet.user?.verified) meta.appendChild(el('span', 'motmot-card-verified', '✓'));
+    meta.appendChild(el('span', 'motmot-card-handle', `@${author} · ${formatWhen(posted, false)}`));
+    main.appendChild(meta);
+
+    if (tweet.replyTo) main.appendChild(el('div', 'motmot-card-reply', `Replying to @${tweet.replyTo}`));
+    if (tweet.text) main.appendChild(linkedText(tweet.text));
+
+    const photos = (tweet.media || []).map((m) => ({ ...m, src: safeImage(m.src) })).filter((m) => m.src);
+    if (photos.length) {
+      const grid = el('div', `motmot-card-media motmot-card-media-${photos.length}`);
+      for (const m of photos) {
+        const cellBox = el('div', 'motmot-card-photo');
+        const img = el('img');
+        img.src = `${m.src}?name=small`;
+        img.alt = '';
+        img.loading = 'lazy';
+        cellBox.appendChild(img);
+        if (m.type !== 'photo') cellBox.appendChild(el('span', 'motmot-card-play', '▶'));
+        grid.appendChild(cellBox);
+      }
+      main.appendChild(grid);
+    }
+
+    const counts = el('div', 'motmot-card-counts');
+    counts.appendChild(el('span', null, `${compact(tweet.counts?.replies || 0)} replies`));
+    counts.appendChild(el('span', null, `${compact(tweet.counts?.retweets || 0)} reposts`));
+    counts.appendChild(el('span', null, `${compact(tweet.counts?.likes || 0)} likes`));
+    main.appendChild(counts);
+    body.appendChild(main);
+
+    const foot = el('div', 'motmot-card-foot');
+    if (permalink) {
+      const open = el('a', 'motmot-card-open', 'Open on X');
+      open.href = permalink;
+      foot.appendChild(open);
+      foot.appendChild(el('span', 'motmot-card-hint', 'Hold to rewind their profile to this moment'));
+    }
+
+    card.classList.add('motmot-card-loaded');
+    card.replaceChildren(cardHead(card, handle, `Random old Tweet · ${formatWhen(posted, false)}`), body, foot);
+    if (id) {
+      // Lets a long press on the card rewind their profile to this Tweet.
+      card.dataset.handle = author;
+      card.dataset.id = id;
+    }
+
+    // The same arrival light as a rewind; the card is our own element, so the
+    // class is safe on it.
+    card.classList.remove('motmot-card-shine');
+    void card.offsetWidth; // restart the animation for "Another"
+    card.classList.add('motmot-card-shine');
+    setTimeout(() => card.classList.remove('motmot-card-shine'), SHINE_MS + 100);
+
+    // Bring the whole card into view if it isn't, without yanking the page.
+    const rect = card.getBoundingClientRect();
+    if (rect.bottom > window.innerHeight || rect.top < 0) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
   // ---- The glow ------------------------------------------------------------
@@ -556,6 +1032,13 @@
   // the user goes anywhere else (Home, another profile, a Tweet), it fades
   // away. X changes pages inside its own app without telling us, so we
   // watch the address.
+  function fadeBannerAfter(ms) {
+    const shown = banner;
+    setTimeout(() => {
+      if (banner === shown) fadeBanner();
+    }, ms);
+  }
+
   let leaveWatch = null;
   function fadeBannerOnLeave() {
     clearInterval(leaveWatch);
@@ -576,10 +1059,10 @@
     if (active && event.data.id === active.id) active.onReport(event.data.status);
   });
 
-  const hashId = (location.hash.match(/^#motmot=(\d{1,20})$/) || [])[1];
+  const hashMatch = location.hash.match(/^#motmot=(\d{1,20})$/);
   const pathMatch = location.pathname.match(/^\/([A-Za-z0-9_]{1,15})(\/with_replies)?\/?$/);
 
-  if (hashId && pathMatch) startRewind(pathMatch[1], hashId, Boolean(pathMatch[2]), { soft: false });
+  if (hashMatch && pathMatch) startRewind(pathMatch[1], hashMatch[1], Boolean(pathMatch[2]), { soft: false });
 
   function startRewind(handle, id, replies, { soft, stale = new WeakSet() }) {
     active?.stop();
@@ -832,6 +1315,7 @@
           reloadTo(rewindUrl(handle, id, replies));
         }, SOFT_TIMEOUT_MS)
       : null;
+
 
     const self = { id, onReport, stop };
     active = self;

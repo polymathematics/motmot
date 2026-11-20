@@ -11,6 +11,9 @@
 // UI renders, the author's real feed starting at that moment. Scrolling on
 // from there pages back in time on X's own cursors, untouched.
 //
+// The same file also serves "random old Tweet", from a hidden frame jump.js
+// keeps on the page: see "the picker" below.
+//
 // Nothing here talks to any server except X, as X's own app would.
 
 (() => {
@@ -19,9 +22,14 @@
   const SNOWFLAKE_MIN = 2n ** 50n; // i64s at least this big are tweet IDs
   const BOOST_COUNT = 100;
   const ARM_WINDOW_MS = 4000; // an in-page arm only applies to the very next load
+  const SEARCH_OP = /\/SearchTimeline$/;
+  const X_EPOCH_MS = 1288834974657;
+  const PICK_WINDOW_MS = 2 * 365.25 * 86400000; // random picks: the last two years
 
-  let target = (location.hash.match(/^#motmot=(\d{1,20})$/) || [])[1] || null;
+  const fromHash = location.hash.match(/^#motmot=(\d{1,20})$/);
+  let target = fromHash ? fromHash[1] : null;
   let armedUntil = target ? Date.now() + 20000 : 0;
+
   // Bigger pages for the whole rewind, starting with the forged first one:
   // fewer round trips before the Tweet is on screen.
   let boost = Boolean(target);
@@ -132,6 +140,11 @@
   // Take a real cursor X gave us earlier (or the default shape) and point
   // every position in it at the moment just after the target Tweet.
   function forgeCursor(tweetId) {
+    return forgeCursorAt(BigInt(tweetId) + 1n); // cursors are exclusive
+  }
+
+  // The same, for a position given directly: everything older than it.
+  function forgeCursorAt(position) {
     let bytes = null;
     try {
       const saved = localStorage.getItem(TEMPLATE_KEY);
@@ -143,7 +156,6 @@
       slots = snowflakeSlots(bytes);
     }
     const view = new DataView(bytes.buffer);
-    const position = BigInt(tweetId) + 1n; // cursors are exclusive
     for (const p of slots) view.setBigUint64(p, position);
     return encodeBase64Url(bytes);
   }
@@ -195,9 +207,328 @@
     return newest <= t ? 'missing' : 'ignored';
   }
 
-  function report(status) {
-    window.postMessage({ source: 'motmot-rewind', status, id: target }, location.origin);
+  function report(status, extra = {}) {
+    window.postMessage({ source: 'motmot-rewind', status, id: target, ...extra }, location.origin);
   }
+
+  // ---- Random old Tweet: the picker ---------------------------------------
+  //
+  // This part runs in the background script's minimized picker window
+  // (#motmot-pick=<id>): a full copy of X's app, with its own login and
+  // request signing, opened on an X search for one author's Tweets in a date
+  // window. (A hidden frame would be lighter, but X won't load in one.)
+  //
+  //   from:alice since:2025-03-01 until:2025-04-01
+  //
+  // Search jumps straight to any stretch of time, so one request lands on a
+  // random month of someone's history, and X makes that request itself. We
+  // read the Tweets out of its response and pass one on as data. For the
+  // next pick, the window moves to another window the way X's own links do
+  // (no reload), and spare Tweets from each page are kept so "Another" is
+  // often instant.
+
+  const DAY_MS = 86400000;
+
+  function tweetTime(tweet) {
+    return Number(BigInt(tweet.id) >> 22n) + X_EPOCH_MS;
+  }
+
+  // Everything the page needs to draw a Tweet, taken from X's own data.
+  function tweetData(result) {
+    if (result?.__typename === 'TweetWithVisibilityResults') result = result.tweet;
+    const legacy = result?.legacy;
+    if (!legacy) return null;
+    const user = result.core?.user_results?.result || {};
+    const note = result.note_tweet?.note_tweet_results?.result;
+
+    let text = note?.text || legacy.full_text || '';
+    // Photo links are shown as photos, not as text; other short links are
+    // spelled out in full.
+    for (const m of legacy.entities?.media || []) text = text.split(m.url).join('');
+    for (const u of note?.entity_set?.urls || legacy.entities?.urls || []) {
+      if (u.url && u.expanded_url) text = text.split(u.url).join(u.expanded_url);
+    }
+    text = text.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+
+    return {
+      id: String(result.rest_id || legacy.id_str || ''),
+      text,
+      createdAt: legacy.created_at || '',
+      replyTo: legacy.in_reply_to_screen_name || null,
+      retweet: Boolean(legacy.retweeted_status_result),
+      counts: {
+        replies: legacy.reply_count || 0,
+        retweets: legacy.retweet_count || 0,
+        likes: legacy.favorite_count || 0,
+      },
+      user: {
+        name: user.legacy?.name || user.core?.name || '',
+        handle: user.legacy?.screen_name || user.core?.screen_name || '',
+        avatar: user.legacy?.profile_image_url_https || user.avatar?.image_url || '',
+        verified: Boolean(user.is_blue_verified),
+      },
+      media: (legacy.extended_entities?.media || []).slice(0, 4).map((m) => ({
+        type: m.type,
+        src: m.media_url_https,
+      })),
+    };
+  }
+
+  // The Tweets in a timeline response (a profile or a search), as data.
+  function pageTweets(json) {
+    const tweets = [];
+    for (const node of walkJson(json)) {
+      if (!Array.isArray(node.entries)) continue;
+      for (const entry of node.entries) {
+        const entryId = String(entry.entryId || '');
+        const results = [];
+        if (/^tweet-\d+$/.test(entryId)) results.push(entry.content?.itemContent?.tweet_results?.result);
+        if (/^(profile-conversation|search-grid|home-conversation)/.test(entryId)) {
+          for (const item of entry.content?.items || []) results.push(item.item?.itemContent?.tweet_results?.result);
+        }
+        for (const result of results) {
+          const tweet = tweetData(result);
+          if (tweet?.id) tweets.push(tweet);
+        }
+      }
+    }
+    return tweets;
+  }
+
+  // Theirs, in their own words (not a retweet), and in the last two years.
+  function ownTweets(tweets, handle) {
+    const oldest = Date.now() - PICK_WINDOW_MS - DAY_MS;
+    return tweets.filter((t) => !t.retweet && t.user.handle.toLowerCase() === handle && tweetTime(t) >= oldest);
+  }
+
+  const day = (ms) => new Date(ms).toISOString().slice(0, 10);
+  function searchPath(handle, lo, hi) {
+    const q = `from:${handle} since:${day(lo)} until:${day(hi + DAY_MS)}`;
+    return `/search?q=${encodeURIComponent(q)}&src=typed_query&f=live`;
+  }
+
+  // A window of `span` days around a random moment in the last two years.
+  function randomWindow(span) {
+    const end = Date.now();
+    const start = end - PICK_WINDOW_MS;
+    if (!span) return { lo: start, hi: end };
+    const width = span * DAY_MS;
+    const lo = start + Math.random() * Math.max(0, end - start - width);
+    return { lo, hi: Math.min(end, lo + width) };
+  }
+
+  // The window the frame was opened on, read back from its own URL.
+  function windowFromUrl() {
+    const q = new URLSearchParams(location.search).get('q') || '';
+    const m = q.match(/^from:([A-Za-z0-9_]{1,15}) since:(\d{4}-\d\d-\d\d) until:(\d{4}-\d\d-\d\d)$/);
+    if (!m) return null;
+    return { handle: m[1].toLowerCase(), lo: Date.parse(m[2]), hi: Date.parse(m[3]) - DAY_MS };
+  }
+
+  const pickHash = window === window.top ? location.hash.match(/^#motmot-pick=([A-Za-z0-9]{1,40})$/) : null;
+  const picker = pickHash
+    ? {
+        frame: pickHash[1],
+        booted: false, // X has made its first search: in-app moves will work
+        waiting: null, // the search we're waiting on: { handle, lo, hi, resolve }
+        pools: new Map(), // handle → unshown Tweets from searches already made
+        shown: new Set(), // IDs already shown, never shown twice
+        batch: 0, // each search's Tweets are one batch (one stretch of time)
+        lastBatch: new Map(), // handle → the batch last shown from
+        queue: [],
+        busy: false,
+        searchedAt: 0, // when X last sent a search request
+        stuck: false, // X didn't follow us to a new search: this frame can't move
+      }
+    : null;
+
+  // Step-by-step notes in the console, to see where a pick stops. They
+  // appear in the page's own console (the frame's lines are marked).
+  const started = Date.now();
+  function note(...args) {
+    console.log(`[mot mot · picker window +${((Date.now() - started) / 1000).toFixed(1)}s]`, ...args);
+  }
+  if (picker) {
+    note('picker window started at', location.pathname + location.search);
+    setTimeout(() => {
+      if (!picker.booted) {
+        note('6s in and X has made no search here. Page:', document.title, '|', location.href, '| text:', (document.body?.innerText || '').slice(0, 160).replace(/\s+/g, ' '));
+      }
+    }, 6000);
+  }
+
+  function tell(req, message) {
+    note('→ page:', message.status, req || '', message.reason || '', message.tweet ? `@${message.tweet.user.handle} ${message.tweet.createdAt}` : '');
+    window.postMessage({ source: 'motmot-pick', frame: picker.frame, req, ...message }, location.origin);
+  }
+
+  function addToPool(handle, tweets) {
+    const pool = picker.pools.get(handle) || [];
+    const batch = ++picker.batch;
+    for (const t of tweets) {
+      if (!picker.shown.has(t.id) && !pool.some((p) => p.tweet.id === t.id)) pool.push({ tweet: t, batch });
+    }
+    picker.pools.set(handle, pool);
+  }
+
+  // A random unshown Tweet, from a different stretch of time than the last
+  // one if there's a choice, so "Another" really does jump around.
+  function takeFromPool(handle) {
+    const pool = picker.pools.get(handle) || [];
+    if (!pool.length) return null;
+    const fresh = pool.filter((p) => p.batch !== picker.lastBatch.get(handle));
+    const from = fresh.length ? fresh : pool;
+    const chosen = from[Math.floor(Math.random() * from.length)];
+    pool.splice(pool.indexOf(chosen), 1);
+    picker.shown.add(chosen.tweet.id);
+    picker.lastBatch.set(handle, chosen.batch);
+    return chosen.tweet;
+  }
+
+  // Every search response X gets in this frame.
+  function onSearch(json) {
+    picker.booted = true;
+    const tweets = pageTweets(json);
+    const w = picker.waiting;
+    note('X search answered:', tweets.length, 'Tweets', json?.errors ? `errors: ${JSON.stringify(json.errors).slice(0, 200)}` : '', w ? `(waiting on @${w.handle})` : '(not waiting)');
+    if (w) {
+      picker.waiting = null;
+      const inWindow = ownTweets(tweets, w.handle).filter((t) => {
+        const at = tweetTime(t);
+        return at >= w.lo - DAY_MS && at <= w.hi + 2 * DAY_MS;
+      });
+      w.resolve(inWindow);
+    } else if (picker.lastHandle) {
+      // A further page X loaded by itself: more to pick from.
+      addToPool(picker.lastHandle, ownTweets(tweets, picker.lastHandle));
+    }
+  }
+
+  // The author's Tweets in a window: X's own search, by moving the frame to
+  // it the way X's links do. Null if X didn't answer in time; 'stuck' if X
+  // didn't even start the search, which we know within a couple of seconds.
+  function search(handle, { lo, hi }, navigate = true) {
+    if (navigate && picker.stuck) return Promise.resolve('stuck');
+    return new Promise((resolve) => {
+      const asked = Date.now();
+      const settle = (value) => {
+        clearTimeout(timer);
+        clearTimeout(check);
+        if (picker.waiting?.resolve === done) picker.waiting = null;
+        resolve(value);
+      };
+      const done = (tweets) => settle(tweets);
+      const timer = setTimeout(() => settle(null), 9000);
+      const check = navigate
+        ? setTimeout(() => {
+            if (picker.searchedAt < asked) {
+              picker.stuck = true;
+              note('X did not start a search after we moved the window: window is stuck');
+              settle('stuck');
+            }
+          }, 2000)
+        : null;
+      picker.waiting = { handle, lo, hi, resolve: done };
+      picker.lastHandle = handle;
+      note(navigate ? 'moving window to search' : 'waiting on first search', `@${handle}`, day(lo), '→', day(hi));
+      if (navigate) {
+        // Replace, not push: a frame's history entries would land in the
+        // tab's Back button.
+        history.replaceState(null, '', searchPath(handle, lo, hi) + location.hash);
+        window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+      }
+    });
+  }
+
+  if (picker) {
+    window.addEventListener('message', (event) => {
+      if (event.source !== window || event.origin !== location.origin) return;
+      const data = event.data;
+      if (data?.source !== 'motmot-picker') return;
+      // jump.js in this window may load after us: it asks, we say again.
+      if (data.type === 'ping') return tell(null, { status: 'ready' });
+      if (!/^[A-Za-z0-9_]{1,15}$/.test(data.handle || '')) return;
+      const handle = data.handle.toLowerCase();
+      if (data.type === 'pick' && /^[A-Za-z0-9]{1,40}$/.test(data.req)) {
+        picker.queue.push({ req: data.req, handle });
+      } else if (data.type === 'prefetch') {
+        // Only if there's nothing new of theirs in hand or on the way.
+        if (hasFresh(handle) || picker.queue.some((j) => j.handle === handle)) return;
+        picker.queue.push({ handle });
+      } else {
+        return;
+      }
+      pump();
+    });
+
+    // The frame opened on a search window: that first search is X's own page
+    // load, already under way. Its Tweets go straight into the pool.
+    const first = windowFromUrl();
+    if (first) {
+      picker.busy = true;
+      search(first.handle, first, false).then((tweets) => {
+        if (tweets) addToPool(first.handle, tweets);
+        picker.busy = false;
+        pump();
+      });
+    }
+    tell(null, { status: 'ready' });
+  }
+
+  function pump() {
+    if (picker.busy) return;
+    const next = picker.queue.shift();
+    if (!next) return;
+    picker.busy = true;
+    const job = next.req ? runPick(next) : refill(next.handle);
+    job
+      .catch(() => next.req && tell(next.req, { status: 'reload' }))
+      .finally(() => {
+        picker.busy = false;
+        pump();
+      });
+  }
+
+  function hasFresh(handle) {
+    return (picker.pools.get(handle) || []).some((p) => p.batch !== picker.lastBatch.get(handle));
+  }
+
+  async function runPick({ req, handle }) {
+    tell(req, { status: 'seeking' });
+    let tweet = takeFromPool(handle);
+
+    // Nothing in hand: search a random month, then wider stretches for
+    // someone who posts rarely.
+    const spans = [30, 180, 0];
+    for (let i = 0; !tweet && i < spans.length; i++) {
+      if (!picker.booted) return tell(req, { status: 'reload' });
+      const tweets = await search(handle, randomWindow(spans[i]));
+      if (tweets === 'stuck') return tell(req, { status: 'reload', nonav: true });
+      if (!tweets) return tell(req, { status: 'reload' });
+      addToPool(handle, tweets);
+      tweet = takeFromPool(handle);
+      if (!tweet) tell(req, { status: 'collecting', count: i + 1, goal: spans.length });
+    }
+    if (!tweet) return tell(req, { status: 'failed', reason: 'none' });
+    tell(req, { status: 'done', tweet });
+
+    // Get the next one ready: Tweets from another random month, so the next
+    // "Another" is instant and from a different time.
+    picker.queue.push({ handle });
+  }
+
+  // Fetch ahead: a random month of theirs, widening (as a pick would) for
+  // someone who rarely posts. Gives way as soon as a real pick is waiting.
+  async function refill(handle) {
+    for (const span of [30, 180, 0]) {
+      if (!picker.booted || picker.stuck || picker.queue.some((j) => j.req)) return;
+      const tweets = await search(handle, randomWindow(span));
+      if (!Array.isArray(tweets)) return;
+      addToPool(handle, tweets);
+      if (tweets.length) return;
+    }
+  }
+
 
   // ---- Rewriting the request --------------------------------------------
 
@@ -226,10 +557,10 @@
         check = true;
       }
       url.searchParams.set('variables', JSON.stringify(variables));
+      return { url: url.toString(), plain, check, userId: variables.userId };
     } catch {
       return { url: rawUrl, plain: rawUrl, check: false };
     }
-    return { url: url.toString(), plain, check };
   }
 
   // A forged cursor X wouldn't take was built from the saved template; drop
@@ -240,7 +571,7 @@
     } catch {}
   }
 
-  function inspect(text, check) {
+  function inspect(text, check, hit = null) {
     let json;
     try {
       json = typeof text === 'string' ? JSON.parse(text) : text;
@@ -261,10 +592,30 @@
   }
 
   const nativeFetch = window.fetch;
+  let opsNoted = 0;
+  function noteOp(raw) {
+    if (!picker || opsNoted >= 12) return;
+    const op = String(raw).match(/\/graphql\/[^/]+\/(\w+)/)?.[1];
+    if (op) {
+      opsNoted++;
+      note('X request:', op);
+    }
+  }
+
   window.fetch = function (input, init) {
     const raw = input instanceof Request ? input.url : String(input);
+    noteOp(raw);
     const hit = intercept(raw);
-    if (!hit) return nativeFetch.call(this, input, init);
+    if (!hit) {
+      const promise = nativeFetch.call(this, input, init);
+      if (picker && isSearch(raw)) {
+        picker.searchedAt = Date.now();
+        note('X sent a search request (fetch)');
+        promise.then((r) => r.ok || note('search request failed: HTTP', r.status), () => note('search request failed: network'));
+        promise.then((r) => r.clone().json().then(onSearch, () => {}), () => {});
+      }
+      return promise;
+    }
 
     const make = (u) => (input instanceof Request ? new Request(u, input) : u);
 
@@ -311,19 +662,37 @@
     });
   };
 
+  function isSearch(rawUrl) {
+    try {
+      return SEARCH_OP.test(new URL(rawUrl, location.href).pathname);
+    } catch {
+      return false;
+    }
+  }
+
   const nativeOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-    const hit = String(method).toUpperCase() === 'GET' ? intercept(String(url)) : null;
+    noteOp(url);
+    const get = String(method).toUpperCase() === 'GET';
+    const hit = get ? intercept(String(url)) : null;
     if (hit) {
       this.addEventListener('load', () => {
         try {
           const body = this.responseType === 'json' ? this.response : this.responseText;
-          inspect(body, hit.check);
+          inspect(body, hit.check, hit);
         } catch {
           if (hit.check) report('ignored');
         }
       });
       url = hit.url;
+    } else if (picker && isSearch(String(url))) {
+      picker.searchedAt = Date.now();
+      note('X sent a search request (XHR)');
+      this.addEventListener('load', () => {
+        try {
+          onSearch(this.responseType === 'json' ? this.response : JSON.parse(this.responseText));
+        } catch {}
+      });
     }
     return nativeOpen.call(this, method, url, ...rest);
   };
