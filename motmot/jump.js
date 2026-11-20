@@ -537,8 +537,33 @@
   }
 
   function hideBanner() {
+    clearInterval(leaveWatch);
     banner?.remove();
     banner = null;
+  }
+
+  // Fade the banner out, then remove it.
+  function fadeBanner() {
+    clearInterval(leaveWatch);
+    const leaving = banner;
+    banner = null;
+    if (!leaving) return;
+    leaving.classList.add('motmot-banner-leaving');
+    setTimeout(() => leaving.remove(), 400);
+  }
+
+  // Once a rewind has finished, the banner belongs to this page: as soon as
+  // the user goes anywhere else (Home, another profile, a Tweet), it fades
+  // away. X changes pages inside its own app without telling us, so we
+  // watch the address.
+  let leaveWatch = null;
+  function fadeBannerOnLeave() {
+    clearInterval(leaveWatch);
+    const here = location.pathname;
+    leaveWatch = setInterval(() => {
+      if (!banner) return clearInterval(leaveWatch);
+      if (location.pathname !== here) fadeBanner();
+    }, 200);
   }
 
   // ---- Rewinding a profile -----------------------------------------------
@@ -558,6 +583,7 @@
 
   function startRewind(handle, id, replies, { soft, stale = new WeakSet() }) {
     active?.stop();
+    clearInterval(leaveWatch); // a new rewind owns the banner now
 
     const target = BigInt(id);
     const when = snowflakeTime(id);
@@ -588,6 +614,7 @@
       stop();
       finishBar(false);
       showBanner(`Stopped rewinding @${handle}`, [searchAction, closeAction]);
+      fadeBannerOnLeave();
     }, 1000);
 
     // ---- Motion ------------------------------------------------------------
@@ -679,6 +706,7 @@
       spotlight(id, article, stale);
       clearHash();
       showBanner(`@${handle} as of ${formatWhen(when)}`, [nowAction, closeAction]);
+      fadeBannerOnLeave();
     }
 
     function failed(reason) {
@@ -686,6 +714,7 @@
       finishBar(false);
       clearHash();
       showBanner(reason, [searchAction, closeAction]);
+      fadeBannerOnLeave();
     }
 
     function tryReplies() {
