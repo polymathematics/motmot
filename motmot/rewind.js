@@ -17,17 +17,31 @@
   const TIMELINE_OP = /\/(UserTweets|UserTweetsAndReplies)$/;
   const TEMPLATE_KEY = 'motmot:cursorTemplate';
   const SNOWFLAKE_MIN = 2n ** 50n; // i64s at least this big are tweet IDs
-  const BOOST_COUNT = 50;
+  const BOOST_COUNT = 100;
+  const ARM_WINDOW_MS = 4000; // an in-page arm only applies to the very next load
 
-  const target = (location.hash.match(/^#motmot=(\d{1,20})$/) || [])[1] || null;
-  let armed = Boolean(target);
-  let boost = false;
+  let target = (location.hash.match(/^#motmot=(\d{1,20})$/) || [])[1] || null;
+  let armedUntil = target ? Date.now() + 20000 : 0;
+  // Bigger pages for the whole rewind, starting with the forged first one:
+  // fewer round trips before the Tweet is on screen.
+  let boost = Boolean(target);
 
-  // jump.js (the isolated content script) asks for bigger pages when it has
-  // to fall back to scrolling.
+  // jump.js (the isolated content script) talks to us by postMessage:
+  //   arm    — a long press is about to switch to a profile in-app, without
+  //            reloading; forge the cursor on the next timeline load.
+  //   disarm — that switch didn't happen; don't touch a later load.
+  //   calm   — the rewind is over; back to X's normal page size.
   window.addEventListener('message', (event) => {
-    if (event.source === window && event.data?.source === 'motmot-jump' && event.data.type === 'boost') {
+    if (event.source !== window || event.data?.source !== 'motmot-jump') return;
+    const { type, id } = event.data;
+    if (type === 'arm' && /^\d{1,20}$/.test(id)) {
+      target = id;
+      armedUntil = Date.now() + ARM_WINDOW_MS;
       boost = true;
+    } else if (type === 'disarm') {
+      armedUntil = 0;
+    } else if (type === 'calm') {
+      boost = false;
     }
   });
 
@@ -172,7 +186,9 @@
     }
     const t = BigInt(target);
     if (ids.some((id) => id === t)) return 'ok';
-    if (!ids.length) return 'missing';
+    // Nothing at all means X didn't accept the forged cursor — not that the
+    // Tweet is missing.
+    if (!ids.length) return 'rejected';
     const newest = ids.reduce((a, b) => (a > b ? a : b));
     // Everything is older than the target: the cursor worked, the Tweet just
     // isn't on this tab (a reply, say). Anything newer: cursor ignored.
@@ -196,21 +212,32 @@
     if (!TIMELINE_OP.test(url.pathname) || !url.searchParams.has('variables')) return null;
 
     let check = false;
+    let plain = rawUrl;
     try {
       const variables = JSON.parse(url.searchParams.get('variables'));
-      if (armed && !variables.cursor) {
-        variables.cursor = forgeCursor(target);
-        armed = false;
-        check = true;
-      }
       if (boost && typeof variables.count === 'number') {
         variables.count = Math.max(variables.count, BOOST_COUNT);
       }
       url.searchParams.set('variables', JSON.stringify(variables));
+      plain = url.toString(); // what X would get without our cursor
+      if (Date.now() < armedUntil && !variables.cursor) {
+        variables.cursor = forgeCursor(target);
+        armedUntil = 0;
+        check = true;
+      }
+      url.searchParams.set('variables', JSON.stringify(variables));
     } catch {
-      return { url: rawUrl, check: false };
+      return { url: rawUrl, plain: rawUrl, check: false };
     }
-    return { url: url.toString(), check };
+    return { url: url.toString(), plain, check };
+  }
+
+  // A forged cursor X wouldn't take was built from the saved template; drop
+  // it so the next attempt starts from the default shape again.
+  function forgetTemplate() {
+    try {
+      localStorage.removeItem(TEMPLATE_KEY);
+    } catch {}
   }
 
   function inspect(text, check) {
@@ -221,8 +248,16 @@
       if (check) report('ignored');
       return;
     }
-    if (check) report(verdict(json));
-    else learn(json); // never learn from our own forged request
+    if (check) {
+      const result = verdict(json);
+      if (result === 'rejected') forgetTemplate();
+      report(result === 'rejected' ? 'ignored' : result);
+    } else {
+      learn(json);
+    } // never learn from our own forged request
+    // While rewinding, each page landing is the cue to step again — much
+    // faster than waiting on a timer.
+    if (boost && !check) report('page');
   }
 
   const nativeFetch = window.fetch;
@@ -231,10 +266,48 @@
     const hit = intercept(raw);
     if (!hit) return nativeFetch.call(this, input, init);
 
-    const request = input instanceof Request ? new Request(hit.url, input) : hit.url;
-    return nativeFetch.call(this, request, init).then((response) => {
-      response.clone().text().then((t) => inspect(t, hit.check), () => {});
-      return response;
+    const make = (u) => (input instanceof Request ? new Request(u, input) : u);
+
+    // A page X couldn't serve: an HTTP error, or GraphQL errors with no data.
+    const unusable = async (response) => {
+      if (!response.ok) return true;
+      try {
+        const json = JSON.parse(await response.clone().text());
+        return Boolean(json?.errors) && !json?.data;
+      } catch {
+        return true;
+      }
+    };
+
+    if (!hit.check) {
+      const boosted = hit.url !== raw;
+      return nativeFetch.call(this, make(hit.url), init).then(async (response) => {
+        // If X won't serve our bigger page size, quietly fall back to X's own
+        // request, and stop asking — a stalled page would stall the rewind.
+        if (boosted && (await unusable(response))) {
+          boost = false;
+          response = await nativeFetch.call(window, make(raw), init);
+        }
+        response.clone().text().then((t) => inspect(t, false), () => {});
+        return response;
+      });
+    }
+
+    // The forged request: look before X does. If X rejected the cursor (or
+    // the page size), hand X exactly the request it made itself, so the
+    // profile isn't left blank.
+    return nativeFetch.call(this, make(hit.url), init).then(async (response) => {
+      let result = 'rejected';
+      try {
+        if (!(await unusable(response))) result = verdict(JSON.parse(await response.clone().text()));
+      } catch {}
+      if (result !== 'rejected') {
+        report(result);
+        return response;
+      }
+      forgetTemplate();
+      report('ignored');
+      return nativeFetch.call(window, make(raw), init);
     });
   };
 

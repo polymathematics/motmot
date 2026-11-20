@@ -33,6 +33,180 @@ article.motmot-origin {
   background-color: rgba(45, 107, 196, 0.08);
 }
 
+/* While rewinding: a faint wash of colour from every corner, slowly cycling
+   through the spectrum. pointer-events: none keeps it purely decorative. */
+.motmot-glow {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  background:
+    radial-gradient(ellipse 70% 60% at 0% 0%, rgba(255, 64, 160, 0.20), transparent 70%),
+    radial-gradient(ellipse 70% 60% at 100% 0%, rgba(64, 160, 255, 0.20), transparent 70%),
+    radial-gradient(ellipse 70% 60% at 100% 100%, rgba(64, 255, 170, 0.18), transparent 70%),
+    radial-gradient(ellipse 70% 60% at 0% 100%, rgba(255, 196, 48, 0.18), transparent 70%);
+  animation: motmot-spectrum 4s linear infinite;
+  will-change: filter, opacity;
+}
+
+/* A soft rim of light around the screen edge that breathes in and out. */
+.motmot-glow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 90px 12px rgba(120, 90, 255, 0.28);
+  animation: motmot-breathe 1.4s ease-in-out infinite alternate;
+}
+
+.motmot-glow.motmot-glow-on {
+  opacity: 1;
+}
+
+@keyframes motmot-spectrum {
+  to { filter: hue-rotate(360deg); }
+}
+
+@keyframes motmot-breathe {
+  from { opacity: 0.45; }
+  to   { opacity: 1; }
+}
+
+/* Arrival, once the Tweet is centred: a band of light runs around its border
+   (::before) while a soft blue glow swells around it (::after). Both brighten
+   to a peak and then fade away completely. They are drawn on our own element
+   laid over the Tweet (jump.js keeps it in place), because X's React rewrites
+   the classes on its own elements whenever it re-renders them. */
+@property --motmot-spin {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.motmot-halo {
+  position: absolute;
+  z-index: 2147483645;
+  pointer-events: none;
+}
+
+.motmot-halo::before,
+.motmot-halo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* The shimmer: two bright arcs of a conic gradient chasing each other round
+   the edge. The mask cuts the gradient down to a 2px border. */
+.motmot-halo::before {
+  padding: 2px;
+  background: conic-gradient(
+    from var(--motmot-spin),
+    rgba(120, 170, 255, 0.15) 0deg,
+    rgba(160, 200, 255, 1) 35deg,
+    rgba(255, 255, 255, 1) 50deg,
+    rgba(120, 170, 255, 0.15) 95deg,
+    rgba(120, 170, 255, 0.15) 180deg,
+    rgba(160, 200, 255, 1) 215deg,
+    rgba(255, 255, 255, 1) 230deg,
+    rgba(120, 170, 255, 0.15) 275deg,
+    rgba(120, 170, 255, 0.15) 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation:
+    motmot-spin 1.2s linear infinite,
+    motmot-swell 2.6s ease-in-out forwards;
+}
+
+/* The glow: light spilling outward from the border and a faint wash inside,
+   swelling with the shimmer. */
+.motmot-halo::after {
+  animation: motmot-halo 2.6s ease-in-out forwards;
+}
+
+@keyframes motmot-spin {
+  to { --motmot-spin: 360deg; }
+}
+
+@keyframes motmot-swell {
+  0%   { opacity: 0; }
+  45%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes motmot-halo {
+  0% {
+    opacity: 0;
+    box-shadow: 0 0 0 0 rgba(90, 150, 255, 0), inset 0 0 0 0 rgba(90, 150, 255, 0);
+  }
+  45% {
+    opacity: 1;
+    box-shadow:
+      0 0 16px 3px rgba(100, 160, 255, 0.65),
+      0 0 44px 10px rgba(110, 140, 255, 0.30),
+      inset 0 0 22px rgba(110, 165, 255, 0.28);
+  }
+  100% {
+    opacity: 0;
+    box-shadow: 0 0 0 0 rgba(90, 150, 255, 0), inset 0 0 0 0 rgba(90, 150, 255, 0);
+  }
+}
+
+/* Progress: a bar across the very top of the screen, filling left to right
+   as the rewind closes in. A highlight sweeps along the filled part so it
+   reads as working even between jumps. Width is driven from jump.js. */
+.motmot-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  z-index: 2147483647;
+  pointer-events: none;
+  background: rgba(45, 107, 196, 0.15);
+  transition: opacity 0.6s ease 0.1s;
+}
+
+.motmot-progress-fill {
+  height: 100%;
+  transform: scaleX(0);
+  transform-origin: left;
+  background:
+    linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%) 0 0 / 30% 100% no-repeat,
+    linear-gradient(90deg, #ff4fa3, #8a6bff 35%, #3d9bff 70%, #3de0b0);
+  box-shadow: 0 0 10px rgba(110, 140, 255, 0.7);
+  animation: motmot-sweep 1.4s linear infinite;
+}
+
+/* Arrival: the fill runs the rest of the way to full, then (done) the bar
+   fades out. */
+.motmot-progress-finishing .motmot-progress-fill {
+  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.motmot-progress-done {
+  opacity: 0;
+}
+
+@keyframes motmot-sweep {
+  from { background-position: -40% 0, 0 0; }
+  to   { background-position: 140% 0, 0 0; }
+}
+
+/* Empty room at the foot of the page so the rewind can start scrolling
+   before X has rendered anything. Height is set from jump.js. */
+.motmot-spacer {
+  display: block;
+  width: 1px;
+  pointer-events: none;
+}
+
 /* Status pill while rewinding, and a reminder afterwards that this profile is
    showing the past, with a way back to the present. */
 .motmot-banner {
@@ -82,6 +256,19 @@ article.motmot-origin {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .motmot-glow,
+  .motmot-glow::before {
+    animation: none;
+  }
+
+  .motmot-progress-fill {
+    animation: none;
+  }
+
+  /* No chasing light: the border and glow just brighten and fade. */
+  .motmot-halo::before {
+    animation: motmot-swell 2.6s ease-in-out forwards;
+  }
   article.motmot-pressing::after {
     animation: none;
     transform: scaleX(1);

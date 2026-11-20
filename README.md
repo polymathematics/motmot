@@ -29,7 +29,7 @@ somewhere other than X.
 
 On X, **long-press any Tweet** (hold the mouse button or your finger for about
 half a second) to open the author's profile, rewound to the moment they posted
-it. The Tweet you came from is marked in blue, and scrolling down carries on
+it. The screen glows faintly while it rewinds. The Tweet you came from is marked in blue, and scrolling down carries on
 back in time. Hold ⌘ (`Ctrl` on Windows and Linux) while you press to open it
 in a new tab; **Back to now** in the banner returns the profile to the present.
 
