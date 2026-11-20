@@ -8,8 +8,12 @@ web and send it to X without losing your place.
 
 ## Install
 
-Download the files, go to `chrome://extensions`, toggle developer mode on (top
-right), and drag the `motmot` folder onto the extension manager.
+1. **[Download mot mot](https://github.com/polymathematics/motmot/releases/latest/download/motmot.zip)**
+   (the latest release) and unzip it.
+2. Go to `chrome://extensions` and toggle **Developer mode** on (top right).
+3. Drag the unzipped `motmot` folder onto the extensions page.
+
+Past versions are on the [Releases](https://github.com/polymathematics/motmot/releases) page.
 
 ## Use it
 
